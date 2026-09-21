@@ -260,9 +260,12 @@ function ZoteroBrowser:displayCollection(collection_id)
 end
 
 function ZoteroBrowser:_button(text, callback)
+    local iconsize = DGENERIC_ICON_SIZE or (G_defaults and G_defaults:readSetting("DGENERIC_ICON_SIZE")) or 40
     return Button:new{
         text = text,
         bordersize = 0,
+        width = Screen:scaleBySize(iconsize),
+        height = Screen:scaleBySize(iconsize),
         callback = callback,
         show_parent = self,
     }
@@ -273,7 +276,7 @@ function ZoteroBrowser:updateHeader()
 
     local left_parts = {}
     if #self.paths > 0 then
-        table.insert(left_parts, self:_button(_("Back"), function()
+        table.insert(left_parts, self:_button("\u{E0B3}", function()
             self:onReturn()
         end))
     end
@@ -285,15 +288,26 @@ function ZoteroBrowser:updateHeader()
     table.insert(left_parts, title_widget)
     local left_group = HorizontalGroup:new{ align = "center", unpack(left_parts) }
 
-    local search_button = self:_button(_("Search"), function()
+    local search_button = self:_button("\u{F422}", function()
         self:onLeftButtonTap()
     end)
+    local close_button = self:_button("\u{E20D}", function()
+        if self.close_callback ~= nil then
+            self.close_callback()
+        end
+    end)
+    local right_group = HorizontalGroup:new{
+        align = "center",
+        search_button,
+        HorizontalSpan:new{ width = math.floor(search_button:getSize().w / 2) },
+        close_button,
+    }
 
     local header_h = title_widget:getSize().h
     if #self.paths > 0 then
         header_h = math.max(header_h, left_parts[1]:getSize().h)
     end
-    header_h = math.max(header_h, search_button:getSize().h) + 2 * Size.padding.small
+    header_h = math.max(header_h, search_button:getSize().h, close_button:getSize().h) + 2 * Size.padding.small
     self.header_h = header_h
 
     self.header = FrameContainer:new{
@@ -310,7 +324,7 @@ function ZoteroBrowser:updateHeader()
                 },
                 RightContainer:new{
                     dimen = Geom:new{ w = screen_w, h = header_h },
-                    search_button,
+                    right_group,
                 },
             },
         },
