@@ -29,6 +29,11 @@ local Size = require("ui/size")
 local _ = require("gettext")
 local ZoteroAPI = require("zoteroapi")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
+local FocusManager = require("ui/widget/focusmanager")
+local RadioButtonTable = require("ui/widget/radiobuttontable")
+local ButtonTable = require("ui/widget/buttontable")
+local MovableContainer = require("ui/widget/container/movablecontainer")
+local TitleBar = require("ui/widget/titlebar")
 local lfs = require("libs/libkoreader-lfs")
 
 
@@ -176,6 +181,14 @@ local ZoteroBrowser = InputContainer:extend{
 function ZoteroBrowser:init()
     self.paths = {}
     self.current_items = {}
+    self.sort_order = G_reader_settings:readSetting("zotero_sort") or "author"
+    if not (self.sort_order == "author" or self.sort_order == "title"
+        or self.sort_order == "year" or self.sort_order == "date_added"
+        or self.sort_order == "date_modified") then
+        self.sort_order = "author"
+    end
+    self.sort_desc = G_reader_settings:readSetting("zotero_sort_desc")
+    self.current_view = nil
     if Device:hasKeys() then
         self.key_events.Back = { { Device.input.group.Back } }
     end
@@ -216,6 +229,217 @@ function ZoteroBrowser:onLeftButtonTap()
     }
     UIManager:show(search_query_dialog)
     search_query_dialog:onShowKeyboard()
+end
+
+-- Pick a sort order and direction for article entries.
+-- Mirrors the stock RadioButtonWidget's construction (proven on-device), but
+-- with two independent radio groups (field + direction) and a Cancel/Apply
+-- button table.
+function ZoteroBrowser:onSortButtonTap()
+    local browser = self
+    local fields = {
+        { { provider = "author",        text = _("Author") } },
+        { { provider = "title",         text = _("Title") } },
+        { { provider = "year",          text = _("Year") } },
+        { { provider = "date_added",    text = _("Date Added") } },
+        { { provider = "date_modified", text = _("Date Modified") } },
+    }
+    local dirs = {
+        { { provider = true,  text = _("Descending") } },
+        { { provider = false, text = _("Ascending") } },
+    }
+
+    -- Current selection / defaults.
+    local sel_field = browser.sort_order
+    local sel_desc = browser.sort_desc
+    if sel_desc ~= true and sel_desc ~= false then
+        sel_desc = browser.sort_order == "date_added" or browser.sort_order == "date_modified"
+    end
+    for _, f in ipairs(fields) do
+        f[1].checked = f[1].provider == sel_field
+    end
+    for _, d in ipairs(dirs) do
+        d[1].checked = d[1].provider == sel_desc
+    end
+
+    local field_selected = sel_field
+    local dir_selected = sel_desc
+    local applied = false
+
+    local SortDialog = FocusManager:extend{
+        title_text = _("Sort by"),
+        width = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.6),
+        cancel_text = _("Close"),
+        ok_text = _("Apply"),
+    }
+
+    function SortDialog:init()
+        if Device:hasKeys() then
+            self.key_events.Close = { { Device.input.group.Back } }
+        end
+        self.ges_events.TapClose = {
+            GestureRange:new{
+                ges = "tap",
+                range = Geom:new{
+                    w = Screen:getWidth(),
+                    h = Screen:getHeight(),
+                },
+            },
+        }
+        self:update()
+    end
+
+    function SortDialog:update()
+        local field_table = RadioButtonTable:new{
+            radio_buttons = fields,
+            width = math.floor(self.width * 0.9),
+            parent = self,
+            show_parent = self,
+            button_select_callback = function(entry)
+                field_selected = entry.provider
+            end,
+        }
+        local dir_table = RadioButtonTable:new{
+            radio_buttons = dirs,
+            width = math.floor(self.width * 0.9),
+            parent = self,
+            show_parent = self,
+            button_select_callback = function(entry)
+                dir_selected = entry.provider
+            end,
+        }
+
+        local title_bar = TitleBar:new{
+            width = self.width,
+            align = "left",
+            with_bottom_line = true,
+            title = self.title_text,
+            title_shrink_font_to_fit = true,
+            show_parent = self,
+        }
+
+        local value_group = VerticalGroup:new{
+            align = "left",
+            field_table,
+            dir_table,
+        }
+
+        local buttons = {
+            {
+                {
+                    text = self.cancel_text,
+                    callback = function()
+                        self:onClose()
+                    end,
+                },
+                {
+                    text = self.ok_text,
+                    callback = function()
+                        self:onApply()
+                    end,
+                },
+            },
+        }
+        local ok_cancel_buttons = ButtonTable:new{
+            width = self.width - 2 * Size.padding.default,
+            buttons = buttons,
+            zero_sep = true,
+            show_parent = self,
+        }
+
+        local vgroup = VerticalGroup:new{
+            align = "left",
+            title_bar,
+        }
+        table.insert(vgroup, CenterContainer:new{
+            dimen = Geom:new{
+                w = self.width,
+                h = value_group:getSize().h + 4 * Size.padding.large,
+            },
+            value_group,
+        })
+        table.insert(vgroup, CenterContainer:new{
+            dimen = Geom:new{
+                w = self.width,
+                h = ok_cancel_buttons:getSize().h,
+            },
+            ok_cancel_buttons,
+        })
+        self.widget_frame = FrameContainer:new{
+            radius = Size.radius.window,
+            padding = 0,
+            margin = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            vgroup,
+        }
+        self.movable = MovableContainer:new{
+            self.widget_frame,
+        }
+        self[1] = WidgetContainer:new{
+            align = "center",
+            dimen = Geom:new{
+                x = 0, y = 0,
+                w = Screen:getWidth(),
+                h = Screen:getHeight(),
+            },
+            self.movable,
+        }
+        UIManager:setDirty(self, function()
+            return "ui", self.widget_frame.dimen
+        end)
+    end
+
+    function SortDialog:onApply()
+        applied = true
+        browser.sort_order = field_selected
+        browser.sort_desc = dir_selected
+        G_reader_settings:saveSetting("zotero_sort", field_selected)
+        G_reader_settings:saveSetting("zotero_sort_desc", dir_selected)
+        self:onClose()
+    end
+
+    function SortDialog:onTapClose(arg, ges_ev)
+        if ges_ev.pos:notIntersectWith(self.widget_frame.dimen) then
+            self:onClose()
+        end
+        return true
+    end
+
+    function SortDialog:onCloseWidget()
+        UIManager:setDirty(nil, function()
+            return "ui", self.widget_frame.dimen
+        end)
+    end
+
+    function SortDialog:onShow()
+        UIManager:setDirty(self, function()
+            return "ui", self.widget_frame.dimen
+        end)
+        return true
+    end
+
+    function SortDialog:onClose()
+        UIManager:close(self)
+        if applied then
+            browser:rerenderCurrentView()
+        end
+        return true
+    end
+
+    local sort_dialog = SortDialog:new{}
+    browser.sort_overlay = sort_dialog
+    UIManager:show(sort_dialog)
+end
+
+-- Display the same list with the current sort order (used after a sort change).
+function ZoteroBrowser:rerenderCurrentView()
+    if self.current_view == nil then
+        self:displayCollection(nil)
+    elseif self.current_view.type == "search" then
+        self:displaySearchResults(self.current_view.query or "")
+    else
+        self:displayCollection(self.current_view.id)
+    end
 end
 
 
@@ -266,7 +490,8 @@ function ZoteroBrowser:onMenuSelect(item)
 end
 
 function ZoteroBrowser:displaySearchResults(query)
-    local items = ZoteroAPI.displaySearchResults(query)
+    self.current_view = { type = "search", query = query }
+    local items = ZoteroAPI.displaySearchResults(query, self.sort_order, self.sort_desc)
     if table_empty(items) then
         table.insert(items, 1, {
             ["text"] = _("No Results"),
@@ -277,7 +502,8 @@ function ZoteroBrowser:displaySearchResults(query)
 end
 
 function ZoteroBrowser:displayCollection(collection_id)
-    local items = ZoteroAPI.displayCollection(collection_id)
+    self.current_view = { type = "collection", id = collection_id }
+    local items = ZoteroAPI.displayCollection(collection_id, self.sort_order, self.sort_desc)
 
     if collection_id == nil then
         table.insert(items, 1, {
@@ -328,15 +554,21 @@ function ZoteroBrowser:updateHeader()
     local search_button = self:_button("\u{F422}", function()
         self:onLeftButtonTap()
     end)
+    local sort_button = self:_button("\u{F161}", function()
+        self:onSortButtonTap()
+    end)
     local close_button = self:_button("\u{E20D}", function()
         if self.close_callback ~= nil then
             self.close_callback()
         end
     end)
+    local btn_pad = math.floor(close_button:getSize().w / 4)
     local right_group = HorizontalGroup:new{
         align = "center",
         search_button,
-        HorizontalSpan:new{ width = math.floor(search_button:getSize().w / 2) },
+        HorizontalSpan:new{ width = btn_pad },
+        sort_button,
+        HorizontalSpan:new{ width = btn_pad },
         close_button,
     }
 
@@ -344,7 +576,7 @@ function ZoteroBrowser:updateHeader()
     if #self.paths > 0 then
         header_h = math.max(header_h, left_parts[1]:getSize().h)
     end
-    header_h = math.max(header_h, search_button:getSize().h, close_button:getSize().h) + 2 * Size.padding.small
+    header_h = math.max(header_h, sort_button:getSize().h, search_button:getSize().h, close_button:getSize().h) + 2 * Size.padding.small
     self.header_h = header_h
 
     self.header = FrameContainer:new{

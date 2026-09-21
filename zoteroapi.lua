@@ -1,4 +1,5 @@
 local BaseUtil = require("ffi/util")
+local Util = require("ffi/util")  -- luacheck:ignore
 local LuaSettings = require("luasettings")
 local http = require("socket.http")
 local ltn12 = require("ltn12")
@@ -69,13 +70,97 @@ local function extractYear(date_string)
     return string.match(date_string, "(%d%d%d%d)")
 end
 
--- Entries are sorted by their subtitle (author) first, then by title, so that
--- the ordering is unchanged compared to the single line layout.
-local function sortKey(item)
-    if item.sub ~= nil then
-        return item.sub .. " " .. (item.title or "")
+-- Values used for comparison. Returned so that nil values sort last.
+local function sortValue(item, field)
+    local v = item[field]
+    if v == nil or v == "" then
+        return nil
     end
-    return item.text
+    if field == "year" then
+        -- keep as numeric year when possible
+        local y = tonumber(v)
+        return y or v
+    end
+    return string.lower(v)
+end
+
+-- Natural string comparison that splits digit runs so that "10" > "2".
+-- Case-insensitive via sortValue (or the passed-in values).
+local function naturalCompare(a, b)
+    local a_len, b_len = #a, #b
+    local i, j = 1, 1
+    while i <= a_len and j <= b_len do
+        local ca, cb = a:sub(i, i), b:sub(j, j)
+        local na, nb = ca:match("%d"), cb:match("%d")
+        if na and nb then
+            local as = a:match("^%d+", i)
+            local bs = b:match("^%d+", j)
+            local la, lb = tonumber(as), tonumber(bs)
+            if la ~= lb then
+                return la < lb
+            end
+            -- Equal numeric values: fewer leading zeros sorts first.
+            if #as ~= #bs then
+                return #as < #bs
+            end
+            i, j = i + #as, j + #bs
+        else
+            if ca ~= cb then
+                return ca < cb
+            end
+            i, j = i + 1, j + 1
+        end
+    end
+    -- One string is a prefix of the other (or they are equal).
+    return a_len - i < b_len - j
+end
+
+-- Sort a list of items by the given order.
+-- Orders: author, title, year, date_added, date_modified.
+-- Default: Author/Title/Year sort ascending; date orders sort newest first.
+-- `desc` (true/false/nil) overrides the direction.
+function API.sortItems(items, sort_order, desc)
+    local field = sort_order
+    if not (field == "author" or field == "year"
+        or field == "date_added" or field == "date_modified") then
+        field = "title"
+    end
+    if desc == nil then
+        desc = field == "date_added" or field == "date_modified"
+    end
+    table.sort(items, function(a, b)
+        local av, bv
+        if field == "author" then
+            -- Fall back to title when no author (collections, labels, "No results").
+            av, bv = a.author or a.title, b.author or b.title
+        else
+            av, bv = sortValue(a, field), sortValue(b, field)
+        end
+        if av == nil and bv == nil then
+            return string.lower(a.title or "") < string.lower(b.title or "")
+        end
+        if av == nil then return false end
+        if bv == nil then return true end
+        if type(av) == "number" and type(bv) == "number" then
+            if av == bv then
+                return string.lower(a.title or "") < string.lower(b.title or "")
+            end
+            if desc then
+                return av > bv
+            end
+            return av < bv
+        end
+        av = string.lower(tostring(av))
+        bv = string.lower(tostring(bv))
+        if av == bv then
+            return string.lower(a.title or "") < string.lower(b.title or "")
+        end
+        if desc then
+            return naturalCompare(bv, av)
+        end
+        return naturalCompare(av, bv)
+    end)
+    return items
 end
 
 function API.cutDecimalPlaces(x, num_places)
@@ -562,7 +647,7 @@ end
 -- Each entry is a table with at least two values, the key and name.
 -- Collections will have a display name that ends with a slash and contain true
 -- under the key "collection" in their table.
-function API.displayCollection(key)
+function API.displayCollection(key, sort_order, sort_desc)
     local result = {}
 
     -- Get list of collections
@@ -573,15 +658,15 @@ function API.displayCollection(key)
             table.insert(result, {
                 ["key"] = k,
                 ["text"] = collection.data.name .. "/",
-                ["collection"] = true
+                ["collection"] = true,
+                ["title"] = collection.data.name,
             })
         end
     end
     -- Sort collections by name
-    local comparator = function(a, b)
-        return (sortKey(a) < sortKey(b))
-    end
-    table.sort(result, comparator)
+    table.sort(result, function(a, b)
+        return (a.title or a.text) < (b.title or b.text)
+    end)
 
     -- Get list of items
     -- Careful: linear search. Can be optimized quite a bit!
@@ -609,7 +694,11 @@ function API.displayCollection(key)
                         ["key"] = k,
                         ["text"] = title,
                         ["title"] = title,
-                        ["sub"] = sub
+                        ["sub"] = sub,
+                        ["author"] = author,
+                        ["year"] = year,
+                        ["date_added"] = parentItem.data.dateAdded,
+                        ["date_modified"] = parentItem.data.dateModified,
                     })
                 end
             else
@@ -625,19 +714,23 @@ function API.displayCollection(key)
                         ["key"] = k,
                         ["text"] = title,
                         ["title"] = title,
-                        ["sub"] = sub
+                        ["sub"] = sub,
+                        ["author"] = item.data.creatorSummary,
+                        ["year"] = year,
+                        ["date_added"] = item.data.dateAdded,
+                        ["date_modified"] = item.data.dateModified,
                     })
                 end
             end
         end
     end
-    table.sort(collectionItems, comparator)
+    API.sortItems(collectionItems, sort_order, sort_desc)
 
     -- Join collections and items together and return it
     return joinTables(result, collectionItems)
 end
 
-function API.displaySearchResults(query)
+function API.displaySearchResults(query, sort_order, sort_desc)
     print("displaySearchResults for " .. query)
     local queryRegex = ".*" .. string.gsub(string.lower(query), " ", ".*") .. ".*"
     print("Searching for " .. queryRegex)
@@ -667,7 +760,11 @@ function API.displaySearchResults(query)
                             ["key"] = k,
                             ["text"] = title,
                             ["title"] = title,
-                            ["sub"] = sub
+                            ["sub"] = sub,
+                            ["author"] = author,
+                            ["year"] = year,
+                            ["date_added"] = parentItem.data.dateAdded,
+                            ["date_modified"] = parentItem.data.dateModified,
                         })
                     end
                 end
@@ -679,15 +776,17 @@ function API.displaySearchResults(query)
                             ["key"] = k,
                             ["text"] = title,
                             ["title"] = title,
+                            ["author"] = item.data.creatorSummary,
+                            ["year"] = extractYear(item.data.date),
+                            ["date_added"] = item.data.dateAdded,
+                            ["date_modified"] = item.data.dateModified,
                         })
                 end
             end
         end
     end
 
-    table.sort(results, function(a, b)
-        return (sortKey(a) < sortKey(b))
-    end)
+    API.sortItems(results, sort_order, sort_desc)
 
     return results
 end
