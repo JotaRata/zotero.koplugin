@@ -59,6 +59,25 @@ local function file_slurp(path)
     return content
 end
 
+-- Extract the publication year from a Zotero date string, which can look like
+-- "2021", "2021-04", "2021-04-12" or even fuzzier.
+local function extractYear(date_string)
+    if date_string == nil then
+        return nil
+    end
+
+    return string.match(date_string, "(%d%d%d%d)")
+end
+
+-- Entries are sorted by their subtitle (author) first, then by title, so that
+-- the ordering is unchanged compared to the single line layout.
+local function sortKey(item)
+    if item.sub ~= nil then
+        return item.sub .. " " .. (item.title or "")
+    end
+    return item.text
+end
+
 function API.cutDecimalPlaces(x, num_places)
     local fac = 10^num_places
     return math.floor(x * fac) / fac
@@ -448,7 +467,7 @@ function API.downloadAndGetPath(key, download_callback)
         return nil, "Error: this item is a linked attachment. Linked attachments are currently unsupported."
     end
 
-    if item.data.linkMode ~= "imported_file" then
+    if item.data.linkMode ~= "imported_file" and item.data.linkMode ~= "imported_url"then
         return nil, "Error: unsupported link mode '" .. tostring(item.data.linkMode) .. "'."
     end
 
@@ -559,8 +578,8 @@ function API.displayCollection(key)
         end
     end
     -- Sort collections by name
-    local comparator = function(a,b)
-        return (a["text"] < b["text"])
+    local comparator = function(a, b)
+        return (sortKey(a) < sortKey(b))
     end
     table.sort(result, comparator)
 
@@ -579,20 +598,34 @@ function API.displayCollection(key)
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil and table_contains(parentItem.data.collections, key) then
                     local author = parentItem.meta.creatorSummary or "Unknown"
-                    local name = author .. " - " .. parentItem.data.title
+                    local title = parentItem.data.title or ""
+                    local year = extractYear(parentItem.data.date)
+                    local sub = author
+                    if year ~= nil then
+                        sub = sub .. " (" .. year .. ")"
+                    end
 
                     table.insert(collectionItems, {
                         ["key"] = k,
-                        ["text"] = name
+                        ["text"] = title,
+                        ["title"] = title,
+                        ["sub"] = sub
                     })
                 end
             else
                 -- item does not have metadata header
-                if item.data.collections ~= nil
+                if item.data.title ~= nil
+                    and item.data.collections ~= nil
                     and table_contains(item.data.collections, key) then
+                    local title = item.data.title
+                    local year = extractYear(item.data.date)
+                    local sub = year ~= nil and ("(" .. year .. ")") or nil
+
                     table.insert(collectionItems, {
                         ["key"] = k,
-                        ["text"] = item.data.title
+                        ["text"] = title,
+                        ["title"] = title,
+                        ["sub"] = sub
                     })
                 end
             end
@@ -619,16 +652,22 @@ function API.displaySearchResults(query)
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil then
                     local author = parentItem.meta.creatorSummary or "Unknown"
-                    local name = author .. " - " .. parentItem.data.title
-
-                    if parentItem.data.DOI ~= nil and parentItem.data.DOI ~= "" then
-                        name = name .. " - " .. parentItem.data.DOI
+                    local title = parentItem.data.title or ""
+                    local year = extractYear(parentItem.data.date)
+                    local sub = author
+                    if year ~= nil then
+                        sub = sub .. " (" .. year .. ")"
                     end
+                    -- Used for matching only: title, first author, year and DOI.
+                    local match_text = title .. " " .. author .. " "
+                        .. (year or "") .. " " .. (parentItem.data.DOI or "")
 
-                    if string.match(string.lower(name), queryRegex) then
+                    if string.match(string.lower(match_text), queryRegex) then
                         table.insert(results, {
                             ["key"] = k,
-                            ["text"] = name
+                            ["text"] = title,
+                            ["title"] = title,
+                            ["sub"] = sub
                         })
                     end
                 end
@@ -638,12 +677,17 @@ function API.displaySearchResults(query)
                 if string.match(string.lower(title), queryRegex) then
                         table.insert(results, {
                             ["key"] = k,
-                            ["text"] = title
+                            ["text"] = title,
+                            ["title"] = title,
                         })
                 end
             end
         end
     end
+
+    table.sort(results, function(a, b)
+        return (sortKey(a) < sortKey(b))
+    end)
 
     return results
 end
