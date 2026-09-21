@@ -7,6 +7,13 @@ This addon for [KOReader](https://github.com/koreader/koreader) allows you to vi
 
 <div align="center"><img width="600" alt="Screenshot of this plugin displaying a list of papers alongside a search button" src="https://raw.githubusercontent.com/stelzch/screencasts/main/zotero-koplugin-screenshot.png"></div>
 
+## Fork changes
+
+* **Sort entries** — sort any list by Author, Title, Year, Date Added or Date Modified, in ascending or descending order, via the new sort button next to the search button.
+* **Sort icon & header** — new icon set for the header buttons, reduced button padding, and a dedicated sort icon placed after the search icon.
+* **Bigger list chevrons** — the chevron guiding you into sub-collections is rendered 20% larger.
+* **`imported_url` fix** — entries linked via "Attach URL" are now handled correctly (fix by [pjaml](https://github.com/pjaml)).
+
 ## Features
 * Synchronize via Web API
 * Display collections, navigate to sub-collections
