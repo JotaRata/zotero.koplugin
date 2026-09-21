@@ -47,6 +47,7 @@ local ZoteroItemRow = InputContainer:extend{
     is_dim = false,
     tappable = true,
     callback = nil,
+    right_symbol = nil, -- optional glyph shown at the right edge of the row
 }
 
 function ZoteroItemRow:init()
@@ -108,14 +109,50 @@ function ZoteroItemRow:init()
     self.content_top_pad = pad_v
     self.content_bottom_pad = pad_v
 
-    self[1] = HorizontalGroup:new{
-        align = "top",
+    local text_group = HorizontalGroup:new{
+        align = "center",
         HorizontalSpan:new{ width = pad_h },
         VerticalGroup:new{
             align = "left",
             unpack(content),
         },
-        HorizontalSpan:new{ width = pad_h },
+    }
+
+    local symbol_layer
+    if self.right_symbol ~= nil then
+        local symbol_widget = TextWidget:new{
+            text = self.right_symbol,
+            face = Font:getFace("infont", math.floor(self.sub_face.orig_size * 1.2)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        }
+        symbol_layer = RightContainer:new{
+            dimen = Geom:new{ w = self.width, h = row_h },
+            CenterContainer:new{
+                dimen = Geom:new{
+                    w = symbol_widget:getSize().w,
+                    h = row_h,
+                },
+                symbol_widget,
+            },
+        }
+    end
+
+    local overlap_children = {
+        LeftContainer:new{
+            dimen = Geom:new{ w = self.width, h = row_h },
+            text_group,
+        },
+    }
+    if symbol_layer ~= nil then
+        table.insert(overlap_children, symbol_layer)
+    end
+
+    self[1] = HorizontalGroup:new{
+        align = "top",
+        OverlapGroup:new{
+            dimen = Geom:new{ w = self.width, h = row_h },
+            unpack(overlap_children),
+        },
     }
 end
 
@@ -343,14 +380,23 @@ function ZoteroBrowser:updateList()
     local content_h = 0
     local top_bound = 0
     local pad_v = Size.padding.small
+    local sep_h = Size.line.thin
     local step_scroll_grid = {}
     for i, item in ipairs(self.current_items) do
+        if i > 1 then
+            table.insert(rows, LineWidget:new{
+                dimen = Geom:new{ w = inner_w, h = sep_h },
+            })
+            content_h = content_h + sep_h
+            top_bound = top_bound + sep_h
+        end
         local row = ZoteroItemRow:new{
             width = inner_w,
             title = item.title or item.text or "",
             sub = item.sub,
             is_dim = item.is_label == true,
             tappable = item.is_label ~= true,
+            right_symbol = (item.collection or item.wildcard_collection) and "\u{F105}" or nil,
             callback = function()
                 self:onMenuSelect(item)
             end,
