@@ -541,6 +541,8 @@ end
 
 function ZoteroBrowser:updateHeader()
     local screen_w = Screen:getWidth()
+    local header_w = screen_w - ScrollableContainer:getScrollbarWidth()
+    local header_margin = Size.margin.default
 
     local left_parts = {}
     if #self.paths > 0 then
@@ -581,8 +583,11 @@ function ZoteroBrowser:updateHeader()
     if #self.paths > 0 then
         header_h = math.max(header_h, left_parts[1]:getSize().h)
     end
-    header_h = math.max(header_h, sort_button:getSize().h, search_button:getSize().h, close_button:getSize().h) + 2 * Size.padding.small
+    header_h = math.max(header_h, sort_button:getSize().h, search_button:getSize().h, close_button:getSize().h) + 2 * header_margin
     self.header_h = header_h
+
+    local left_w = left_group:getSize().w
+    local right_w = right_group:getSize().w
 
     self.header = FrameContainer:new{
         padding = 0,
@@ -591,14 +596,20 @@ function ZoteroBrowser:updateHeader()
         HorizontalGroup:new{
             align = "center",
             OverlapGroup:new{
-                dimen = Geom:new{ w = screen_w, h = header_h },
+                dimen = Geom:new{ w = header_w, h = header_h },
                 LeftContainer:new{
-                    dimen = Geom:new{ w = screen_w, h = header_h },
-                    left_group,
+                    dimen = Geom:new{ w = header_w, h = header_h },
+                    CenterContainer:new{
+                        dimen = Geom:new{ w = left_w, h = header_h },
+                        left_group,
+                    },
                 },
                 RightContainer:new{
-                    dimen = Geom:new{ w = screen_w, h = header_h },
-                    right_group,
+                    dimen = Geom:new{ w = header_w, h = header_h },
+                    CenterContainer:new{
+                        dimen = Geom:new{ w = right_w, h = header_h },
+                        right_group,
+                    },
                 },
             },
         },
