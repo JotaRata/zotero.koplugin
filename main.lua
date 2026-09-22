@@ -497,6 +497,7 @@ end
 function ZoteroBrowser:displaySearchResults(query)
     self.current_view = { type = "search", query = query }
     G_reader_settings:saveSetting("zotero_last_view", self.current_view)
+    G_reader_settings:saveSetting("zotero_paths", self.paths)
     local items = ZoteroAPI.displaySearchResults(query, self.sort_order, self.sort_desc)
     if table_empty(items) then
         table.insert(items, 1, {
@@ -510,6 +511,7 @@ end
 function ZoteroBrowser:displayCollection(collection_id)
     self.current_view = { type = "collection", id = collection_id }
     G_reader_settings:saveSetting("zotero_last_view", self.current_view)
+    G_reader_settings:saveSetting("zotero_paths", self.paths)
     local items = ZoteroAPI.displayCollection(collection_id, self.sort_order, self.sort_desc)
 
     if collection_id == nil then
@@ -1029,6 +1031,10 @@ function Plugin:onZoteroOpenAction()
         h = Screen:getHeight()
     })
     local last_view = G_reader_settings:readSetting("zotero_last_view")
+    local saved_paths = G_reader_settings:readSetting("zotero_paths")
+    if type(saved_paths) == "table" then
+        self.browser.paths = saved_paths
+    end
     if last_view ~= nil and last_view.type == "search" then
         self.browser:displaySearchResults(last_view.query or "")
     elseif last_view ~= nil and last_view.id ~= nil then
