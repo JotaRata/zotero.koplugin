@@ -530,6 +530,26 @@ function API.getDirAndPath(attachmentKey)
     return targetDir, targetPath
 end
 
+-- Returns true if the attachment file is present locally and up to date
+-- (same check as downloadAndGetPath's cache shortcut).
+function API.isDownloaded(attachmentKey)
+    local items = API.getItems()
+    local attachment = items[attachmentKey]
+    if attachment == nil or attachment.data.itemType ~= "attachment" then
+        return false
+    end
+
+    local targetDir, targetPath = API.getDirAndPath(attachmentKey)
+    if targetPath == nil then
+        return false
+    end
+
+    local local_version = tonumber(file_slurp(targetDir .. "/version"))
+    local version_ok = attachment.version == nil
+        or (local_version ~= nil and local_version >= attachment.version)
+    return version_ok and file_exists(targetPath)
+end
+
 -- Downloads an attachment file to the correct directory and returns the path.
 -- If the local version is up to date, no network request is made.
 -- Before the download, the download_callback is called.

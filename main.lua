@@ -19,6 +19,7 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local CenterContainer = require("ui/widget/container/centercontainer")
+local BottomContainer = require("ui/widget/container/bottomcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local RightContainer = require("ui/widget/container/rightcontainer")
 local TextWidget = require("ui/widget/textwidget")
@@ -53,6 +54,8 @@ local ZoteroItemRow = InputContainer:extend{
     tappable = true,
     callback = nil,
     right_symbol = nil, -- optional glyph shown at the right edge of the row
+    symbol_bottom = false, -- bottom-align the glyph instead of centering it
+    symbol_scale = 1.2, -- glyph size relative to sub_face
 }
 
 function ZoteroItemRow:init()
@@ -125,14 +128,16 @@ function ZoteroItemRow:init()
 
     local symbol_layer
     if self.right_symbol ~= nil then
+        local symbol_face = Font:getFace("infont",
+            math.floor(self.sub_face.orig_size * (self.symbol_scale or 1.2)))
         local symbol_widget = TextWidget:new{
             text = self.right_symbol,
-            face = Font:getFace("infont", math.floor(self.sub_face.orig_size * 1.2)),
+            face = symbol_face,
             fgcolor = Blitbuffer.COLOR_DARK_GRAY,
         }
         symbol_layer = RightContainer:new{
             dimen = Geom:new{ w = self.width, h = row_h },
-            CenterContainer:new{
+            (self.symbol_bottom and BottomContainer or CenterContainer):new{
                 dimen = Geom:new{
                     w = symbol_widget:getSize().w,
                     h = row_h,
@@ -628,7 +633,11 @@ function ZoteroBrowser:updateList()
             sub = item.sub,
             is_dim = item.is_label == true,
             tappable = item.is_label ~= true,
-            right_symbol = (item.collection or item.wildcard_collection) and "\u{F105}" or nil,
+            right_symbol = (item.collection or item.wildcard_collection) and "\u{F105}"
+                or (ZoteroAPI.isDownloaded(item.key) and "\u{F019}")
+                or nil,
+            symbol_bottom = ZoteroAPI.isDownloaded(item.key),
+            symbol_scale = ZoteroAPI.isDownloaded(item.key) and 0.9 or 1.2,
             callback = function()
                 self:onMenuSelect(item)
             end,
