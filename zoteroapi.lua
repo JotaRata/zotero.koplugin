@@ -8,6 +8,7 @@ local JSON = require("json")
 local lfs = require("libs/libkoreader-lfs")
 local DocSettings = require("docsettings")
 local sha2 = require("ffi/sha2")
+local Archiver = require("ffi/archiver")
 
 -- Functions expect config parameter, a lua table with the following keys:
 -- zotero_dir: Path to a directory where cache files will be stored
@@ -344,7 +345,7 @@ end
 
 function API.verifyResponse(r, c)
     if r ~= 1 then
-        return ("Error: " .. c)
+        return ("Error: no network connection available. Please check your connection and try again. (" .. c .. ")")
     elseif c ~= 200 then
         return ("Error: API responded with status code " .. c)
     end
@@ -635,21 +636,34 @@ function API.downloadWebDAV(key, targetDir, targetPath)
         sink = ltn12.sink.file(io.open(zipPath, "wb"))
     }
 
-    if c ~= 200 then
+    if r ~= 1 then
+        return nil, "Error: no network connection available. Please check your connection and try again. (" .. c .. ")"
+    elseif c ~= 200 then
         return nil, "Download failed with status code " .. c
     end
 
-    -- Zotero WebDAV storage packs documents inside a zipfile
-    local zip_cmd = "unzip -qq '" .. zipPath .. "' -d '" .. targetDir .. "'"
-    print("Unzipping with " .. zip_cmd)
-    local zip_result = os.execute(zip_cmd)
-    if zip_result then
-        return targetPath
-    else
-        return nil, "Unzipping failed"
+    -- Zotero WebDAV storage packs documents inside a zipfile.
+    -- Use KOReader's bundled libarchive instead of a system `unzip` binary
+    -- (some devices, e.g. Android/Tolino, do not ship one).
+    local reader = Archiver.Reader:new()
+    if not reader:open(zipPath) then
+        return nil, "Unzipping failed: could not open archive"
+    end
+    local ok = true
+    for entry in reader:iterate() do
+        if entry.mode == "file" and not reader:extractToPath(entry.path, targetDir .. "/" .. entry.path) then
+            ok = false
+            break
+        end
+    end
+    local err = reader.err
+    reader:close()
+    os.remove(zipPath)
+    if not ok then
+        return nil, "Unzipping failed: " .. tostring(err)
     end
 
-    local remove_result = os.remove(zipPath)
+    return targetPath
 end
 
 function API.getWebDAVHeaders()
@@ -703,7 +717,7 @@ function API.displayCollection(key, sort_order, sort_desc)
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil and table_contains(parentItem.data.collections, key) then
                     local author = parentItem.meta.creatorSummary or "Unknown"
-                    local title = parentItem.data.title or ""
+                    local title = parentItem.data.title or item.data.title or "Unknown Title"
                     local year = extractYear(parentItem.data.date)
                     local sub = author
                     if year ~= nil then
@@ -765,7 +779,7 @@ function API.displaySearchResults(query, sort_order, sort_desc)
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil then
                     local author = parentItem.meta.creatorSummary or "Unknown"
-                    local title = parentItem.data.title or ""
+                    local title = parentItem.data.title or item.data.title or "Unknown Title"
                     local year = extractYear(parentItem.data.date)
                     local sub = author
                     if year ~= nil then

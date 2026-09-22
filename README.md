@@ -9,9 +9,16 @@ This addon for [KOReader](https://github.com/koreader/koreader) allows you to vi
 
 ## Fork changes
 
-* **Sort entries** — sort any list by Author, Title, Year, Date Added or Date Modified, in ascending or descending order, via the new sort button next to the search button.
-* **Sort icon & header** — new icon set for the header buttons, reduced button padding, and a dedicated sort icon placed after the search icon.
-* **`imported_url` fix** — entries linked via "Attach URL" are now handled correctly (fix by [pjaml](https://github.com/pjaml)).
+### Features
+* [Sort by date added](https://github.com/stelzch/zotero.koplugin/issues/18) — plus author, title and date modified, ascending or descending.
+* Sort icon & header — new icon set for the header buttons, reduced button padding, and a dedicated sort icon placed after the search icon.
+* Downloaded indicator — a small download icon appears on the right edge of items whose attachment is already stored locally, so you can spot offline-ready papers at a glance.
+* [Allow attachments with `imported_url` link mode](https://github.com/stelzch/zotero.koplugin/issues/37) — fix by [pjaml](https://github.com/pjaml).
+
+### Bug fixes
+* [add "network not detected/available" prompt](https://github.com/stelzch/zotero.koplugin/issues/25) — descriptive error instead of a cryptic socket message.
+* [Edge cases with nil parentItem.data.title](https://github.com/stelzch/zotero.koplugin/issues/29) — no more crashes on missing titles.
+* [KoReader crash when unzip files](https://github.com/stelzch/zotero.koplugin/issues/34) — unpack WebDAV attachments with KOReader's bundled libarchive, no reliance on a system `unzip` binary.
 
 ## Features
 * Synchronize via Web API
