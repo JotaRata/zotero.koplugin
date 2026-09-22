@@ -516,7 +516,7 @@ function API.getDirAndPath(attachmentKey)
     local items = API.getItems()
     local attachment = items[attachmentKey]
 
-    if attachment == nil then
+    if attachment == nil or attachment.data.filename == nil then
         return nil, nil
     end
 
@@ -580,6 +580,9 @@ function API.downloadAndGetPath(key, download_callback)
     local attachment = item
 
     local targetDir, targetPath = API.getDirAndPath(key)
+    if targetDir == nil then
+        return nil, "Error: attachment has no filename"
+    end
     lfs.mkdir(targetDir)
 
     local local_version = tonumber(file_slurp(targetDir .. "/version"))
