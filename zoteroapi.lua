@@ -71,26 +71,38 @@ local function extractYear(date_string)
     return string.match(date_string, "(%d%d%d%d)")
 end
 
--- A single author is shortened to "Last, Initial." (e.g. "Flash Gordon" ->
--- "Gordon, F."). Multi-author summaries ("A and B") are left untouched.
-local function formatAuthor(summary)
+-- Build a compact author label from the creatorSummary shorthand and the
+-- full creator list (which holds the given-name initials).
+--   one author:  "Bate"            -> "Bate, M"
+--   two authors: "Shakura and Sunyaev" -> unchanged (kept as-is)
+--   many:        "Price et al."    -> "Price, D et al."
+local function formatAuthor(summary, creators)
     if summary == nil then
         return nil
     end
-    -- Zotero joins multiple creators with " and ", e.g. "Shakura and Sunyaev".
+    -- Zotero joins two creators with " and ", e.g. "Shakura and Sunyaev".
     if string.match(summary, " and ") then
         return summary
     end
-    local last, first
-    last, first = string.match(summary, "^%s*(.-)%s*,%s*(.-)%s*$")
-    if last == nil then
-        first, last = string.match(summary, "^%s*(%S+)%s+(%S+)%s*$")
-    end
-    if last ~= nil and first ~= nil then
-        local initial = string.match(first, "^%S")
-        if initial ~= nil then
-            return last .. ", " .. initial .. "."
+    local first = creators ~= nil and creators[1] or nil
+    local surname = first ~= nil and first.lastName or nil
+    local initial = nil
+    if first ~= nil and first.firstName ~= nil then
+        local i = string.match(first.firstName, "^%S")
+        if i ~= nil then
+            initial = i
         end
+    end
+    -- Three or more creators: "Price et al." -> "Price, D et al."
+    if string.match(summary, " et al%.$") then
+        if surname ~= nil and initial ~= nil then
+            return surname .. ", " .. initial .. " et al."
+        end
+        return summary
+    end
+    -- Single author: "Bate" -> "Bate, M"
+    if surname ~= nil and initial ~= nil then
+        return surname .. ", " .. initial
     end
     return summary
 end
@@ -743,7 +755,7 @@ function API.displayCollection(key, sort_order, sort_desc)
                 -- we search for
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil and table_contains(parentItem.data.collections, key) then
-                    local author = formatAuthor(parentItem.meta.creatorSummary) or "Unknown"
+                    local author = formatAuthor(parentItem.meta.creatorSummary, parentItem.data.creators) or "Unknown"
                     local title = parentItem.data.title or item.data.title or "Unknown Title"
                     local year = extractYear(parentItem.data.date)
                     local sub = author
@@ -776,7 +788,7 @@ function API.displayCollection(key, sort_order, sort_desc)
                         ["text"] = title,
                         ["title"] = title,
                         ["sub"] = sub,
-                        ["author"] = formatAuthor(item.data.creatorSummary),
+                        ["author"] = formatAuthor(item.data.creatorSummary, item.data.creators),
                         ["year"] = year,
                         ["date_added"] = item.data.dateAdded,
                         ["date_modified"] = item.data.dateModified,
@@ -805,7 +817,7 @@ function API.displaySearchResults(query, sort_order, sort_desc)
             if item.data.parentItem ~= nil and items[item.data.parentItem] ~= nil then
                 local parentItem = items[item.data.parentItem]
                 if parentItem ~= nil then
-                    local author = formatAuthor(parentItem.meta.creatorSummary) or "Unknown"
+                    local author = formatAuthor(parentItem.meta.creatorSummary, parentItem.data.creators) or "Unknown"
                     local title = parentItem.data.title or item.data.title or "Unknown Title"
                     local year = extractYear(parentItem.data.date)
                     local sub = author
@@ -837,7 +849,7 @@ function API.displaySearchResults(query, sort_order, sort_desc)
                             ["key"] = k,
                             ["text"] = title,
                             ["title"] = title,
-                            ["author"] = formatAuthor(item.data.creatorSummary),
+                            ["author"] = formatAuthor(item.data.creatorSummary, item.data.creators),
                             ["year"] = extractYear(item.data.date),
                             ["date_added"] = item.data.dateAdded,
                             ["date_modified"] = item.data.dateModified,
