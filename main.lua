@@ -496,6 +496,7 @@ end
 
 function ZoteroBrowser:displaySearchResults(query)
     self.current_view = { type = "search", query = query }
+    G_reader_settings:saveSetting("zotero_last_view", self.current_view)
     local items = ZoteroAPI.displaySearchResults(query, self.sort_order, self.sort_desc)
     if table_empty(items) then
         table.insert(items, 1, {
@@ -508,6 +509,7 @@ end
 
 function ZoteroBrowser:displayCollection(collection_id)
     self.current_view = { type = "collection", id = collection_id }
+    G_reader_settings:saveSetting("zotero_last_view", self.current_view)
     local items = ZoteroAPI.displayCollection(collection_id, self.sort_order, self.sort_desc)
 
     if collection_id == nil then
@@ -614,6 +616,30 @@ function ZoteroBrowser:updateHeader()
             },
         },
     }
+end
+
+function ZoteroBrowser:saveScrollPosition()
+    if self.scroll_container == nil then
+        G_reader_settings:delSetting("zotero_scroll_y")
+        return
+    end
+    local max = self.scroll_container._max_scroll_offset_y or 0
+    if max <= 0 then
+        G_reader_settings:delSetting("zotero_scroll_y")
+        return
+    end
+    local offset = self.scroll_container._scroll_offset_y or 0
+    local crop = self.scroll_container._crop_h or self.scroll_container.dimen.h
+    -- Inverse of scrollToRatio: offset = ratio*(max+crop) - crop/2
+    local ratio = (offset + crop / 2) / (max + crop)
+    G_reader_settings:saveSetting("zotero_scroll_y", ratio)
+end
+
+function ZoteroBrowser:restoreScrollPosition()
+    local ratio = G_reader_settings:readSetting("zotero_scroll_y")
+    if ratio ~= nil and self.scroll_container._is_scrollable then
+        self.scroll_container:scrollToRatio(nil, ratio)
+    end
 end
 
 function ZoteroBrowser:updateList()
@@ -765,6 +791,7 @@ function Plugin:initAPIAndBrowser()
             self.ui:onRefresh()
         end,
         close_callback = function()
+            self.browser:saveScrollPosition()
             UIManager:close(self.zotero_dialog, "full")
         end,
 		items_per_page = self:getItemsPerPage()
@@ -1001,7 +1028,15 @@ function Plugin:onZoteroOpenAction()
         w = Screen:getWidth(),
         h = Screen:getHeight()
     })
-    self.browser:displayCollection(nil)
+    local last_view = G_reader_settings:readSetting("zotero_last_view")
+    if last_view ~= nil and last_view.type == "search" then
+        self.browser:displaySearchResults(last_view.query or "")
+    elseif last_view ~= nil and last_view.id ~= nil then
+        self.browser:displayCollection(last_view.id)
+    else
+        self.browser:displayCollection(nil)
+    end
+    self.browser:restoreScrollPosition()
 end
 
 function Plugin:onZoteroSyncAction()
